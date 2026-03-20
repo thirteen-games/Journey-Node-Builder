@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Journey Node Builder</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      padding: 24px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    h1 { color: #f0a500; margin-bottom: 8px; }
+    h2 { color: #f0a500; margin-bottom: 12px; font-size: 1.2em; }
+    .subtitle { color: #888; margin-bottom: 24px; font-size: 0.9em; }
+    .section {
+      background: #16213e;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block;
+      font-size: 0.85em;
+      color: #aaa;
+      margin-bottom: 4px;
+    }
+    .field label .hint { color: #666; font-style: italic; }
+    input[type="text"], input[type="number"], textarea {
+      width: 100%;
+      background: #0f0f23;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #e0e0e0;
+      padding: 8px 10px;
+      font-size: 0.9em;
+      font-family: inherit;
+    }
+    textarea { resize: vertical; min-height: 60px; }
+    input:focus, textarea:focus { outline: none; border-color: #f0a500; }
+    .checkbox-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .checkbox-field input { width: auto; }
+    .checkbox-field label { color: #aaa; font-size: 0.85em; }
+
+    .frame-container {
+      background: #0f1a30;
+      border: 1px solid #2a2a4a;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 12px;
+      position: relative;
+    }
+    .frame-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .frame-header h3 { color: #70a1ff; font-size: 1em; }
+    .frame-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .frame-grid .full-width { grid-column: 1 / -1; }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9em;
+      font-family: inherit;
+    }
+    .btn-add {
+      background: #2d5f2d;
+      color: #8fdf8f;
+      margin-bottom: 16px;
+    }
+    .btn-add:hover { background: #3a7a3a; }
+    .btn-remove {
+      background: #5f2d2d;
+      color: #df8f8f;
+      font-size: 0.8em;
+      padding: 4px 10px;
+    }
+    .btn-remove:hover { background: #7a3a3a; }
+    .btn-generate {
+      background: #f0a500;
+      color: #1a1a2e;
+      font-weight: 600;
+      font-size: 1em;
+      padding: 12px 24px;
+      width: 100%;
+    }
+    .btn-generate:hover { background: #ffb81c; }
+    .btn-copy {
+      background: #2d4a5f;
+      color: #8fbfdf;
+      margin-top: 8px;
+    }
+    .btn-copy:hover { background: #3a5f7a; }
+
+    .output-area {
+      background: #0f0f23;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 16px;
+      white-space: pre-wrap;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.85em;
+      line-height: 1.5;
+      max-height: 500px;
+      overflow-y: auto;
+      color: #8fdf8f;
+    }
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .duplicate-hint {
+      color: #666;
+      font-size: 0.75em;
+      margin-top: 2px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Journey Node Builder</h1>
+  <p class="subtitle">Generate SQL for GameData.JourneyNodes and GameData.Cutscenes</p>
+
+  <!-- Journey Node Section -->
+  <div class="section">
+    <h2>Journey Node</h2>
+    <div class="checkbox-field">
+      <input type="checkbox" id="node-active" checked>
+      <label for="node-active">Active</label>
+    </div>
+    <div class="row-2">
+      <div class="field">
+        <label for="node-location">Location <span class="hint">(e.g. 5)</span></label>
+        <input type="number" id="node-location" placeholder="Location ID">
+      </div>
+      <div class="field">
+        <label for="node-order">Order <span class="hint">(position within location)</span></label>
+        <input type="number" id="node-order" placeholder="1">
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="field">
+        <label for="node-scenario">Scenario <span class="hint">(Scenario ID)</span></label>
+        <input type="text" id="node-scenario" placeholder="Scenario ID">
+      </div>
+      <div class="field">
+        <label for="node-rewardids">RewardIds <span class="hint">(Reward ID)</span></label>
+        <input type="text" id="node-rewardids" placeholder="Reward ID">
+      </div>
+    </div>
+
+    <h2 style="margin-top: 16px;">Node Data (JSON)</h2>
+    <div class="field">
+      <label for="node-title">Title <span class="hint">(appears on location screen button)</span></label>
+      <input type="text" id="node-title" placeholder="e.g. A Pirate's Life">
+    </div>
+    <div class="field">
+      <label for="node-description">Description</label>
+      <input type="text" id="node-description" placeholder="e.g. Win a match to 20 Novas!">
+    </div>
+    <div class="row-2">
+      <div class="field">
+        <label for="node-characterasset">CharacterAssetKey</label>
+        <input type="text" id="node-characterasset" placeholder="e.g. Journey/Character_Vivi[...]">
+      </div>
+      <div class="field">
+        <label for="node-backgroundasset">BackgroundAssetKey</label>
+        <input type="text" id="node-backgroundasset" placeholder="e.g. Journey/Gameboard_Energy_1">
+      </div>
+    </div>
+    <div class="field">
+      <label for="node-hint">Hint <span class="hint">(optional, leave blank for empty)</span></label>
+      <input type="text" id="node-hint" placeholder="">
+    </div>
+  </div>
+
+  <!-- Cutscene Metadata Section -->
+  <div class="section">
+    <h2>Cutscene Metadata</h2>
+    <div class="field">
+      <label for="cs-title">Title</label>
+      <input type="text" id="cs-title" placeholder="e.g. A Pirate's Life">
+    </div>
+    <div class="field">
+      <label for="cs-skiptext">SkipText <span class="hint">(popup text if level is skippable; leave blank if not skippable)</span></label>
+      <textarea id="cs-skiptext" placeholder="e.g. The Pro of the Boom District..."></textarea>
+    </div>
+    <div class="field">
+      <label for="cs-thumbnail">Thumbnail <span class="hint">(small image on location screen button)</span></label>
+      <input type="text" id="cs-thumbnail" placeholder="e.g. Journey/Character_DrBoom[Journey_HostCharacter_Boom_Laugh]">
+    </div>
+    <div class="field">
+      <label for="cs-audiobanks">AudioBanks <span class="hint">(comma-separated voice bank names)</span></label>
+      <input type="text" id="cs-audiobanks" placeholder="e.g. VO Cutscene DrBoom, VO Cutscene Vivi">
+    </div>
+    <div class="checkbox-field">
+      <input type="checkbox" id="cs-overridemusic" checked>
+      <label for="cs-overridemusic">OverrideMusic <span class="hint">(almost always true)</span></label>
+    </div>
+  </div>
+
+  <!-- Cutscene Frames Section -->
+  <div class="section">
+    <h2>Cutscene Frames</h2>
+    <div style="margin-bottom: 16px; padding: 12px; background: #0f1a30; border: 1px dashed #444; border-radius: 6px;">
+      <label style="display: block; font-size: 0.85em; color: #aaa; margin-bottom: 4px;">
+        Import Frames JSON <span class="hint">(paste a single frame object or an array of frames)</span>
+      </label>
+      <textarea id="frames-import" style="width: 100%; background: #0f0f23; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; padding: 8px 10px; font-size: 0.85em; font-family: 'Consolas', 'Monaco', monospace; min-height: 80px; resize: vertical;" placeholder='Paste JSON here, e.g. {"AudioKey":"...","MusicData":{"AssetKey":"..."},...} or [...]'></textarea>
+      <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <button class="btn-add" style="margin-bottom: 0;" onclick="importFrames(false)">Import (Replace All)</button>
+        <button class="btn-add" style="margin-bottom: 0;" onclick="importFrames(true)">Import (Append)</button>
+      </div>
+      <div id="import-error" style="color: #df8f8f; font-size: 0.8em; margin-top: 6px; display: none;"></div>
+    </div>
+    <div id="frames-container"></div>
+    <button class="btn-add" onclick="addFrame()">+ Add Frame</button>
+  </div>
+
+  <!-- Generate -->
+  <button class="btn-generate" onclick="generateSQL()">Generate SQL</button>
+
+  <!-- Output -->
+  <div class="section" style="margin-top: 20px;">
+    <h2>Generated SQL</h2>
+    <div id="sql-output" class="output-area">Click "Generate SQL" to see output...</div>
+    <button class="btn-copy" onclick="copySQL()">Copy to Clipboard</button>
+  </div>
+
+  <script>
+    let frameCount = 0;
+
+    function importFrames(append) {
+      const errorEl = document.getElementById('import-error');
+      errorEl.style.display = 'none';
+      const raw = document.getElementById('frames-import').value.trim();
+      if (!raw) {
+        errorEl.textContent = 'Paste some JSON first.';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        errorEl.textContent = 'Invalid JSON: ' + e.message;
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      // Normalize to array
+      const frameArray = Array.isArray(parsed) ? parsed : [parsed];
+
+      if (!append) {
+        // Clear existing frames
+        document.getElementById('frames-container').innerHTML = '';
+        frameCount = 0;
+      }
+
+      frameArray.forEach(f => {
+        addFrame({
+          DialogueSpeaker: f.DialogueSpeaker || '',
+          CharacterAssetKey: f.CharacterAssetKey || '',
+          DialogueText: f.DialogueText || '',
+          AudioKey: f.AudioKey || '',
+          MusicAssetKey: (f.MusicData && f.MusicData.AssetKey) || '',
+          BackgroundAssetKey: f.BackgroundAssetKey || ''
+        });
+      });
+
+      // Clear the import box after success
+      document.getElementById('frames-import').value = '';
+    }
+
+    function addFrame(prefill) {
+      frameCount++;
+      const id = frameCount;
+      const container = document.getElementById('frames-container');
+      const div = document.createElement('div');
+      div.className = 'frame-container';
+      div.id = `frame-${id}`;
+      div.innerHTML = `
+        <div class="frame-header">
+          <h3>Frame ${id}</h3>
+          <button class="btn-remove" onclick="removeFrame(${id})">Remove</button>
+        </div>
+        <div class="frame-grid">
+          <div class="field">
+            <label>DialogueSpeaker</label>
+            <input type="text" data-frame="${id}" data-key="DialogueSpeaker" placeholder="e.g. Vivi" value="${prefill?.DialogueSpeaker || ''}">
+          </div>
+          <div class="field">
+            <label>CharacterAssetKey</label>
+            <input type="text" data-frame="${id}" data-key="CharacterAssetKey" placeholder="e.g. Journey/Character_Vivi[...]" value="${prefill?.CharacterAssetKey || ''}">
+            <div class="duplicate-hint">Leave blank to reuse previous frame's value</div>
+          </div>
+          <div class="field full-width">
+            <label>DialogueText</label>
+            <textarea data-frame="${id}" data-key="DialogueText" placeholder="e.g. I've got so much energy already!">${prefill?.DialogueText || ''}</textarea>
+          </div>
+          <div class="field">
+            <label>AudioKey <span class="hint">(voiceover)</span></label>
+            <input type="text" data-frame="${id}" data-key="AudioKey" placeholder="e.g. event:/VO/Max/Cutscene/Max_Journey_haha_1" value="${prefill?.AudioKey || ''}">
+          </div>
+          <div class="field">
+            <label>MusicData AssetKey</label>
+            <input type="text" data-frame="${id}" data-key="MusicAssetKey" placeholder="e.g. Cutscene Music/Energy District Cutscene" value="${prefill?.MusicAssetKey || ''}">
+            <div class="duplicate-hint">Leave blank to reuse previous frame's value</div>
+          </div>
+          <div class="field full-width">
+            <label>BackgroundAssetKey</label>
+            <input type="text" data-frame="${id}" data-key="BackgroundAssetKey" placeholder="e.g. Journey/Gameboard_Energy_1" value="${prefill?.BackgroundAssetKey || ''}">
+            <div class="duplicate-hint">Leave blank to reuse previous frame's value</div>
+          </div>
+        </div>
+      `;
+      container.appendChild(div);
+      renumberFrames();
+    }
+
+    function removeFrame(id) {
+      const el = document.getElementById(`frame-${id}`);
+      if (el) el.remove();
+      renumberFrames();
+    }
+
+    function renumberFrames() {
+      const frames = document.querySelectorAll('#frames-container .frame-container');
+      frames.forEach((frame, index) => {
+        frame.querySelector('h3').textContent = `Frame ${index + 1}`;
+      });
+    }
+
+    function getFrameData() {
+      const frameElements = document.querySelectorAll('#frames-container .frame-container');
+      const frames = [];
+      let lastCharacterAssetKey = '';
+      let lastMusicAssetKey = '';
+      let lastBackgroundAssetKey = '';
+
+      frameElements.forEach(frameEl => {
+        const inputs = frameEl.querySelectorAll('[data-key]');
+        const data = {};
+        inputs.forEach(input => {
+          data[input.dataset.key] = input.value;
+        });
+
+        // Carry forward values from previous frame if blank
+        if (!data.CharacterAssetKey && lastCharacterAssetKey) {
+          data.CharacterAssetKey = lastCharacterAssetKey;
+        }
+        if (!data.MusicAssetKey && lastMusicAssetKey) {
+          data.MusicAssetKey = lastMusicAssetKey;
+        }
+        if (!data.BackgroundAssetKey && lastBackgroundAssetKey) {
+          data.BackgroundAssetKey = lastBackgroundAssetKey;
+        }
+
+        lastCharacterAssetKey = data.CharacterAssetKey;
+        lastMusicAssetKey = data.MusicAssetKey;
+        lastBackgroundAssetKey = data.BackgroundAssetKey;
+
+        frames.push(data);
+      });
+      return frames;
+    }
+
+    function escapeSQL(str) {
+      if (str === null || str === undefined) return '';
+      return str.replace(/'/g, "''");
+    }
+
+    function generateSQL() {
+      const frames = getFrameData();
+
+      // Build Frames JSON array
+      const framesJson = frames.map(f => {
+        const frame = {};
+        frame.AudioKey = f.AudioKey || '';
+        frame.MusicData = { AssetKey: f.MusicAssetKey || '' };
+        frame.DialogueText = f.DialogueText || '';
+        frame.DialogueSpeaker = f.DialogueSpeaker || '';
+        frame.CharacterAssetKey = f.CharacterAssetKey || '';
+        frame.BackgroundAssetKey = f.BackgroundAssetKey || '';
+        return frame;
+      });
+
+      // Build Metadata JSON
+      const audioBanksRaw = document.getElementById('cs-audiobanks').value.trim();
+      const audioBanks = audioBanksRaw
+        ? audioBanksRaw.split(',').map(s => s.trim()).filter(s => s)
+        : [];
+
+      const metadata = {
+        Title: document.getElementById('cs-title').value,
+        SkipText: document.getElementById('cs-skiptext').value,
+        Thumbnail: document.getElementById('cs-thumbnail').value,
+        AudioBanks: audioBanks,
+        OverrideMusic: document.getElementById('cs-overridemusic').checked
+      };
+
+      const framesJsonStr = JSON.stringify(framesJson);
+      const metadataJsonStr = JSON.stringify(metadata);
+
+      const skipText = document.getElementById('cs-skiptext').value.trim();
+      const skippable = skipText ? 1 : 0;
+
+      // Build Node Data JSON
+      const nodeData = {
+        Title: document.getElementById('node-title').value,
+        Description: document.getElementById('node-description').value,
+        CharacterAssetKey: document.getElementById('node-characterasset').value,
+        BackgroundAssetKey: document.getElementById('node-backgroundasset').value,
+        Hint: document.getElementById('node-hint').value || ''
+      };
+
+      const active = document.getElementById('node-active').checked ? 1 : 0;
+      const location = document.getElementById('node-location').value;
+      const order = document.getElementById('node-order').value;
+      const scenario = document.getElementById('node-scenario').value;
+      const rewardIds = document.getElementById('node-rewardids').value;
+
+      const nodeDataJson = JSON.stringify(nodeData);
+
+      let sql = '';
+      sql += '-- =============================================\n';
+      sql += `-- Journey Node: ${nodeData.Title || '(untitled)'}\n`;
+      sql += '-- =============================================\n\n';
+
+      sql += '-- Cutscene\n';
+      sql += `INSERT INTO GameData.Cutscenes(Frames, Metadata, Skippable)\n`;
+      sql += `VALUES('${escapeSQL(framesJsonStr)}', '${escapeSQL(metadataJsonStr)}', ${skippable});\n`;
+      sql += 'SET @cutscene_id = LAST_INSERT_ID();\n\n';
+
+      sql += '-- Journey Node\n';
+      sql += `INSERT INTO GameData.JourneyNodes(Active, Location, \`Order\`, Scenario, RewardIds, Data, CutsceneID)\n`;
+      sql += `VALUES(${active}, ${location || 'NULL'}, ${order || 'NULL'}, ${scenario || 'NULL'}, '${escapeSQL(rewardIds || '[]')}', '${escapeSQL(nodeDataJson)}', @cutscene_id);\n`;
+
+      document.getElementById('sql-output').textContent = sql;
+    }
+
+    function copySQL() {
+      const text = document.getElementById('sql-output').textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.querySelector('.btn-copy');
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = orig, 1500);
+      });
+    }
+
+    // Start with one frame
+    addFrame();
+  </script>
+</body>
+</html>
