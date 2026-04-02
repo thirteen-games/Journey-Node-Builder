@@ -309,13 +309,21 @@
 
     // Extract a SQL string value starting at position i (right after the opening ')
     // Returns { value, end } where end is the position after the closing '
-    // Handles both '' (standard SQL) and \' (MySQL-style) apostrophe escaping
+    // Reverses escapeSQL: \\ → \, '' → ', \' → '
     function extractSQLString(sql, i) {
       let result = '';
       while (i < sql.length) {
-        if (sql[i] === '\\' && i + 1 < sql.length && sql[i + 1] === "'") {
-          result += "'";
-          i += 2;
+        if (sql[i] === '\\' && i + 1 < sql.length) {
+          if (sql[i + 1] === '\\') {
+            result += '\\';
+            i += 2;
+          } else if (sql[i + 1] === "'") {
+            result += "'";
+            i += 2;
+          } else {
+            result += sql[i];
+            i++;
+          }
         } else if (sql[i] === "'") {
           if (i + 1 < sql.length && sql[i + 1] === "'") {
             result += "'";
@@ -675,7 +683,7 @@
 
     function escapeSQL(str) {
       if (str === null || str === undefined) return '';
-      return str.replace(/'/g, "''");
+      return str.replace(/\\/g, '\\\\').replace(/'/g, "''");
     }
 
     function generateSQL() {
