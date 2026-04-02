@@ -199,9 +199,9 @@
     <h2>Cutscene Metadata</h2>
     <div style="margin-bottom: 16px; padding: 12px; background: #0f1a30; border: 1px dashed #444; border-radius: 6px;">
       <label style="display: block; font-size: 0.85em; color: #aaa; margin-bottom: 4px;">
-        Import Cutscene Row <span class="hint">(paste a CSV row from GameData.Cutscenes: ID, Frames, Metadata, Skippable)</span>
+        Import Cutscene <span class="hint">(paste a CSV row from GameData.Cutscenes, or previously generated SQL output)</span>
       </label>
-      <textarea id="cutscene-import" style="width: 100%; background: #0f0f23; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; padding: 8px 10px; font-size: 0.85em; font-family: 'Consolas', 'Monaco', monospace; min-height: 60px; resize: vertical;" placeholder='Paste CSV row, e.g. 425,"[{""AudioKey"":""...""}]","{""Title"":""...""}",1'></textarea>
+      <textarea id="cutscene-import" style="width: 100%; background: #0f0f23; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; padding: 8px 10px; font-size: 0.85em; font-family: 'Consolas', 'Monaco', monospace; min-height: 60px; resize: vertical;" placeholder='Paste a CSV row or generated SQL output here'></textarea>
       <div style="display: flex; gap: 8px; margin-top: 8px;">
         <button class="btn-add" style="margin-bottom: 0;" onclick="importCutsceneRow()">Import Cutscene</button>
       </div>
@@ -307,52 +307,129 @@
       return fields;
     }
 
-    function importCutsceneRow() {
-      const errorEl = document.getElementById('cutscene-import-error');
-      errorEl.style.display = 'none';
-      const raw = document.getElementById('cutscene-import').value.trim();
-      if (!raw) {
-        errorEl.textContent = 'Paste a CSV row first.';
-        errorEl.style.display = 'block';
-        return;
+    // Extract a SQL string value starting at position i (right after the opening ')
+    // Returns { value, end } where end is the position after the closing '
+    function extractSQLString(sql, i) {
+      let result = '';
+      while (i < sql.length) {
+        if (sql[i] === "'") {
+          if (i + 1 < sql.length && sql[i + 1] === "'") {
+            result += "'";
+            i += 2;
+          } else {
+            return { value: result, end: i + 1 };
+          }
+        } else {
+          result += sql[i];
+          i++;
+        }
+      }
+      return { value: result, end: i };
+    }
+
+    function parseSQLOutput(sql) {
+      let cutsceneId = '';
+      let framesStr, metadataStr, skippable;
+
+      // Detect UPDATE vs INSERT for Cutscene
+      const updateMatch = sql.match(/UPDATE\s+GameData\.Cutscenes/i);
+      const insertMatch = sql.match(/INSERT\s+INTO\s+GameData\.Cutscenes/i);
+
+      if (updateMatch) {
+        // UPDATE format: SET Frames = '...', Metadata = '...', Skippable = N WHERE ID = N
+        const framesIdx = sql.indexOf("Frames = '", updateMatch.index);
+        if (framesIdx === -1) throw new Error('Could not find Frames in UPDATE');
+        const framesResult = extractSQLString(sql, framesIdx + "Frames = '".length);
+        framesStr = framesResult.value;
+
+        const metaIdx = sql.indexOf("Metadata = '", framesResult.end);
+        if (metaIdx === -1) throw new Error('Could not find Metadata in UPDATE');
+        const metaResult = extractSQLString(sql, metaIdx + "Metadata = '".length);
+        metadataStr = metaResult.value;
+
+        const skipMatch = sql.substring(metaResult.end).match(/Skippable\s*=\s*(\d+)/);
+        skippable = skipMatch ? parseInt(skipMatch[1]) : 0;
+
+        const whereMatch = sql.substring(metaResult.end).match(/WHERE\s+ID\s*=\s*(\d+)/i);
+        if (whereMatch) cutsceneId = whereMatch[1];
+      } else if (insertMatch) {
+        // INSERT format: VALUES('Frames', 'Metadata', N)
+        const valIdx = sql.indexOf("VALUES('", insertMatch.index);
+        if (valIdx === -1) throw new Error('Could not find VALUES in Cutscenes INSERT');
+        const framesResult = extractSQLString(sql, valIdx + "VALUES('".length);
+        framesStr = framesResult.value;
+
+        // Skip ", '" to get to metadata
+        const metaQuote = sql.indexOf("'", framesResult.end + 1);
+        if (metaQuote === -1) throw new Error('Could not find Metadata in INSERT');
+        const metaResult = extractSQLString(sql, metaQuote + 1);
+        metadataStr = metaResult.value;
+
+        const skipMatch = sql.substring(metaResult.end).match(/,\s*(\d+)\s*\)/);
+        skippable = skipMatch ? parseInt(skipMatch[1]) : 0;
+      } else {
+        throw new Error('Could not find Cutscene INSERT or UPDATE statement');
       }
 
-      let fields;
-      try {
-        fields = parseCSVRow(raw);
-        if (fields.length < 4) throw new Error(`Expected 4 columns (ID, Frames, Metadata, Skippable), got ${fields.length}`);
-      } catch (e) {
-        errorEl.textContent = 'CSV parse error: ' + e.message;
-        errorEl.style.display = 'block';
-        return;
+      // Parse JourneyNode INSERT for node data
+      let nodeData = {};
+      let nodeActive = true, nodeLocation = '', nodeOrder = '', nodeScenario = '', nodeRewardIds = '';
+      const nodeMatch = sql.match(/INSERT\s+INTO\s+GameData\.JourneyNodes/i);
+      if (nodeMatch) {
+        const nodeValIdx = sql.indexOf("VALUES(", nodeMatch.index);
+        if (nodeValIdx !== -1) {
+          let pos = nodeValIdx + "VALUES(".length;
+          // Active
+          const activeMatch = sql.substring(pos).match(/^(\d+)\s*,/);
+          if (activeMatch) {
+            nodeActive = activeMatch[1] === '1';
+            pos += activeMatch[0].length;
+          }
+          // Location
+          const locMatch = sql.substring(pos).match(/^\s*(\d+|NULL)\s*,/i);
+          if (locMatch) {
+            nodeLocation = locMatch[1] === 'NULL' ? '' : locMatch[1];
+            pos += locMatch[0].length;
+          }
+          // Order
+          const ordMatch = sql.substring(pos).match(/^\s*(\d+|NULL)\s*,/i);
+          if (ordMatch) {
+            nodeOrder = ordMatch[1] === 'NULL' ? '' : ordMatch[1];
+            pos += ordMatch[0].length;
+          }
+          // Scenario
+          const scenMatch = sql.substring(pos).match(/^\s*(\d+|NULL)\s*,/i);
+          if (scenMatch) {
+            nodeScenario = scenMatch[1] === 'NULL' ? '' : scenMatch[1];
+            pos += scenMatch[0].length;
+          }
+          // RewardIds (SQL string)
+          const rewardQuote = sql.indexOf("'", pos);
+          if (rewardQuote !== -1) {
+            const rewardResult = extractSQLString(sql, rewardQuote + 1);
+            nodeRewardIds = rewardResult.value;
+            pos = rewardResult.end;
+          }
+          // Data (SQL string -> JSON)
+          const dataQuote = sql.indexOf("'", pos + 1);
+          if (dataQuote !== -1) {
+            const dataResult = extractSQLString(sql, dataQuote + 1);
+            try {
+              nodeData = JSON.parse(dataResult.value);
+            } catch (e) { /* ignore, keep defaults */ }
+          }
+        }
       }
 
-      const [idStr, framesStr, metadataStr, skippableStr] = fields;
+      return { cutsceneId, framesStr, metadataStr, skippable, nodeData, nodeActive, nodeLocation, nodeOrder, nodeScenario, nodeRewardIds };
+    }
 
-      // Parse Frames JSON
-      let framesArray;
-      try {
-        framesArray = JSON.parse(framesStr);
-        if (!Array.isArray(framesArray)) throw new Error('Frames must be a JSON array');
-      } catch (e) {
-        errorEl.textContent = 'Invalid Frames JSON: ' + e.message;
-        errorEl.style.display = 'block';
-        return;
-      }
-
-      // Parse Metadata JSON
-      let metadata;
-      try {
-        metadata = JSON.parse(metadataStr);
-      } catch (e) {
-        errorEl.textContent = 'Invalid Metadata JSON: ' + e.message;
-        errorEl.style.display = 'block';
-        return;
-      }
-
+    function populateFormFromImport(cutsceneId, framesArray, metadata, nodeData, nodeActive, nodeLocation, nodeOrder, nodeScenario, nodeRewardIds) {
       // Populate CutsceneID and check overwrite
-      document.getElementById('cutscene-id').value = idStr.trim();
-      document.getElementById('cutscene-overwrite').checked = true;
+      if (cutsceneId) {
+        document.getElementById('cutscene-id').value = cutsceneId;
+        document.getElementById('cutscene-overwrite').checked = true;
+      }
 
       // Populate metadata fields
       document.getElementById('cs-title').value = metadata.Title || '';
@@ -360,6 +437,20 @@
       document.getElementById('cs-thumbnail').value = metadata.Thumbnail || '';
       document.getElementById('cs-audiobanks').value = (metadata.AudioBanks || []).join(', ');
       document.getElementById('cs-overridemusic').checked = metadata.OverrideMusic !== false;
+
+      // Populate journey node fields if provided
+      if (nodeData && Object.keys(nodeData).length > 0) {
+        document.getElementById('node-title').value = nodeData.Title || '';
+        document.getElementById('node-description').value = nodeData.Description || '';
+        document.getElementById('node-characterasset').value = nodeData.CharacterAssetKey || '';
+        document.getElementById('node-backgroundasset').value = nodeData.BackgroundAssetKey || '';
+        document.getElementById('node-hint').value = nodeData.Hint || '';
+      }
+      if (nodeActive !== undefined) document.getElementById('node-active').checked = nodeActive;
+      if (nodeLocation) document.getElementById('node-location').value = nodeLocation;
+      if (nodeOrder) document.getElementById('node-order').value = nodeOrder;
+      if (nodeScenario) document.getElementById('node-scenario').value = nodeScenario;
+      if (nodeRewardIds) document.getElementById('node-rewardids').value = nodeRewardIds;
 
       // Import frames (replace all)
       document.getElementById('frames-container').innerHTML = '';
@@ -374,9 +465,72 @@
           BackgroundAssetKey: f.BackgroundAssetKey || ''
         });
       });
+    }
 
-      // Clear the import box
-      document.getElementById('cutscene-import').value = '';
+    function importCutsceneRow() {
+      const errorEl = document.getElementById('cutscene-import-error');
+      errorEl.style.display = 'none';
+      const raw = document.getElementById('cutscene-import').value.trim();
+      if (!raw) {
+        errorEl.textContent = 'Paste a CSV row or SQL output first.';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      // Auto-detect: SQL starts with --, CSV starts with a number
+      const isSQL = raw.startsWith('--') || /^\s*(UPDATE|INSERT)/i.test(raw);
+
+      try {
+        if (isSQL) {
+          const parsed = parseSQLOutput(raw);
+
+          let framesArray;
+          try {
+            framesArray = JSON.parse(parsed.framesStr);
+            if (!Array.isArray(framesArray)) throw new Error('Frames must be a JSON array');
+          } catch (e) {
+            throw new Error('Invalid Frames JSON: ' + e.message);
+          }
+
+          let metadata;
+          try {
+            metadata = JSON.parse(parsed.metadataStr);
+          } catch (e) {
+            throw new Error('Invalid Metadata JSON: ' + e.message);
+          }
+
+          populateFormFromImport(parsed.cutsceneId, framesArray, metadata, parsed.nodeData, parsed.nodeActive, parsed.nodeLocation, parsed.nodeOrder, parsed.nodeScenario, parsed.nodeRewardIds);
+        } else {
+          // CSV format
+          const fields = parseCSVRow(raw);
+          if (fields.length < 4) throw new Error(`Expected 4 columns (ID, Frames, Metadata, Skippable), got ${fields.length}`);
+
+          const [idStr, framesStr, metadataStr] = fields;
+
+          let framesArray;
+          try {
+            framesArray = JSON.parse(framesStr);
+            if (!Array.isArray(framesArray)) throw new Error('Frames must be a JSON array');
+          } catch (e) {
+            throw new Error('Invalid Frames JSON: ' + e.message);
+          }
+
+          let metadata;
+          try {
+            metadata = JSON.parse(metadataStr);
+          } catch (e) {
+            throw new Error('Invalid Metadata JSON: ' + e.message);
+          }
+
+          populateFormFromImport(idStr.trim(), framesArray, metadata);
+        }
+
+        // Clear the import box on success
+        document.getElementById('cutscene-import').value = '';
+      } catch (e) {
+        errorEl.textContent = 'Import error: ' + e.message;
+        errorEl.style.display = 'block';
+      }
     }
 
     function importFrames(append) {
