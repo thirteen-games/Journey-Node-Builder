@@ -309,10 +309,14 @@
 
     // Extract a SQL string value starting at position i (right after the opening ')
     // Returns { value, end } where end is the position after the closing '
+    // Handles both '' (standard SQL) and \' (MySQL-style) apostrophe escaping
     function extractSQLString(sql, i) {
       let result = '';
       while (i < sql.length) {
-        if (sql[i] === "'") {
+        if (sql[i] === '\\' && i + 1 < sql.length && sql[i + 1] === "'") {
+          result += "'";
+          i += 2;
+        } else if (sql[i] === "'") {
           if (i + 1 < sql.length && sql[i + 1] === "'") {
             result += "'";
             i += 2;
