@@ -197,6 +197,16 @@
   <!-- Cutscene Metadata Section -->
   <div class="section">
     <h2>Cutscene Metadata</h2>
+    <div style="margin-bottom: 16px; padding: 12px; background: #0f1a30; border: 1px dashed #444; border-radius: 6px;">
+      <label style="display: block; font-size: 0.85em; color: #aaa; margin-bottom: 4px;">
+        Import Cutscene Row <span class="hint">(paste a CSV row from GameData.Cutscenes: ID, Frames, Metadata, Skippable)</span>
+      </label>
+      <textarea id="cutscene-import" style="width: 100%; background: #0f0f23; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; padding: 8px 10px; font-size: 0.85em; font-family: 'Consolas', 'Monaco', monospace; min-height: 60px; resize: vertical;" placeholder='Paste CSV row, e.g. 425,"[{""AudioKey"":""...""}]","{""Title"":""...""}",1'></textarea>
+      <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <button class="btn-add" style="margin-bottom: 0;" onclick="importCutsceneRow()">Import Cutscene</button>
+      </div>
+      <div id="cutscene-import-error" style="color: #df8f8f; font-size: 0.8em; margin-top: 6px; display: none;"></div>
+    </div>
     <div class="row-2">
       <div class="field">
         <label for="cutscene-id">CutsceneID <span class="hint">(leave blank for new)</span></label>
@@ -261,6 +271,113 @@
 
   <script>
     let frameCount = 0;
+
+    function parseCSVRow(row) {
+      const fields = [];
+      let i = 0;
+      while (i < row.length) {
+        if (row[i] === '"') {
+          // Quoted field
+          i++; // skip opening quote
+          let field = '';
+          while (i < row.length) {
+            if (row[i] === '"') {
+              if (i + 1 < row.length && row[i + 1] === '"') {
+                field += '"';
+                i += 2;
+              } else {
+                i++; // skip closing quote
+                break;
+              }
+            } else {
+              field += row[i];
+              i++;
+            }
+          }
+          fields.push(field);
+          if (i < row.length && row[i] === ',') i++; // skip comma
+        } else {
+          // Unquoted field
+          let end = row.indexOf(',', i);
+          if (end === -1) end = row.length;
+          fields.push(row.substring(i, end));
+          i = end + 1;
+        }
+      }
+      return fields;
+    }
+
+    function importCutsceneRow() {
+      const errorEl = document.getElementById('cutscene-import-error');
+      errorEl.style.display = 'none';
+      const raw = document.getElementById('cutscene-import').value.trim();
+      if (!raw) {
+        errorEl.textContent = 'Paste a CSV row first.';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      let fields;
+      try {
+        fields = parseCSVRow(raw);
+        if (fields.length < 4) throw new Error(`Expected 4 columns (ID, Frames, Metadata, Skippable), got ${fields.length}`);
+      } catch (e) {
+        errorEl.textContent = 'CSV parse error: ' + e.message;
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      const [idStr, framesStr, metadataStr, skippableStr] = fields;
+
+      // Parse Frames JSON
+      let framesArray;
+      try {
+        framesArray = JSON.parse(framesStr);
+        if (!Array.isArray(framesArray)) throw new Error('Frames must be a JSON array');
+      } catch (e) {
+        errorEl.textContent = 'Invalid Frames JSON: ' + e.message;
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      // Parse Metadata JSON
+      let metadata;
+      try {
+        metadata = JSON.parse(metadataStr);
+      } catch (e) {
+        errorEl.textContent = 'Invalid Metadata JSON: ' + e.message;
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      // Populate CutsceneID and check overwrite
+      document.getElementById('cutscene-id').value = idStr.trim();
+      document.getElementById('cutscene-overwrite').checked = true;
+
+      // Populate metadata fields
+      document.getElementById('cs-title').value = metadata.Title || '';
+      document.getElementById('cs-skiptext').value = metadata.SkipText || '';
+      document.getElementById('cs-thumbnail').value = metadata.Thumbnail || '';
+      document.getElementById('cs-audiobanks').value = (metadata.AudioBanks || []).join(', ');
+      document.getElementById('cs-overridemusic').checked = metadata.OverrideMusic !== false;
+
+      // Import frames (replace all)
+      document.getElementById('frames-container').innerHTML = '';
+      frameCount = 0;
+      framesArray.forEach(f => {
+        addFrame({
+          DialogueSpeaker: f.DialogueSpeaker || '',
+          CharacterAssetKey: f.CharacterAssetKey || '',
+          DialogueText: f.DialogueText || '',
+          AudioKey: f.AudioKey || '',
+          MusicAssetKey: (f.MusicData && f.MusicData.AssetKey) || '',
+          BackgroundAssetKey: f.BackgroundAssetKey || ''
+        });
+      });
+
+      // Clear the import box
+      document.getElementById('cutscene-import').value = '';
+    }
 
     function importFrames(append) {
       const errorEl = document.getElementById('import-error');
