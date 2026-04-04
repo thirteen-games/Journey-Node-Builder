@@ -545,21 +545,44 @@
       }
     }
 
+    // Extract a JSON array from a string starting at or after startIdx.
+    // Tracks JSON string state to correctly handle brackets inside strings.
+    function extractJSONArray(str, startIdx) {
+      const arrStart = str.indexOf('[', startIdx);
+      if (arrStart === -1) return null;
+      let depth = 0;
+      let inString = false;
+      for (let i = arrStart; i < str.length; i++) {
+        if (inString) {
+          if (str[i] === '\\') { i++; continue; } // skip escaped char
+          if (str[i] === '"') inString = false;
+        } else {
+          if (str[i] === '"') inString = true;
+          else if (str[i] === '[') depth++;
+          else if (str[i] === ']') { depth--; if (depth === 0) return str.substring(arrStart, i + 1); }
+        }
+      }
+      return null;
+    }
+
     // Extract just the Frames JSON string from SQL output
     function extractFramesFromSQL(sql) {
       const updateMatch = sql.match(/UPDATE\s+GameData\.Cutscenes/i);
       const insertMatch = sql.match(/INSERT\s+INTO\s+GameData\.Cutscenes/i);
 
+      let searchFrom = 0;
       if (updateMatch) {
-        const framesIdx = sql.indexOf("Frames = '", updateMatch.index);
-        if (framesIdx === -1) return null;
-        return extractSQLString(sql, framesIdx + "Frames = '".length).value;
+        const framesIdx = sql.indexOf("Frames", updateMatch.index);
+        if (framesIdx !== -1) searchFrom = framesIdx;
       } else if (insertMatch) {
-        const valIdx = sql.indexOf("VALUES('", insertMatch.index);
-        if (valIdx === -1) return null;
-        return extractSQLString(sql, valIdx + "VALUES('".length).value;
+        const valIdx = sql.indexOf("VALUES", insertMatch.index);
+        if (valIdx !== -1) searchFrom = valIdx;
+      } else {
+        return null;
       }
-      return null;
+
+      // Extract the JSON array directly by tracking brackets and string state
+      return extractJSONArray(sql, searchFrom);
     }
 
     function importFrames(append) {
