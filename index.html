@@ -246,9 +246,9 @@
     <h2>Cutscene Frames</h2>
     <div style="margin-bottom: 16px; padding: 12px; background: #0f1a30; border: 1px dashed #444; border-radius: 6px;">
       <label style="display: block; font-size: 0.85em; color: #aaa; margin-bottom: 4px;">
-        Import Frames JSON <span class="hint">(paste a single frame object or an array of frames)</span>
+        Import Frames <span class="hint">(paste frames JSON, or full SQL output to extract frames from)</span>
       </label>
-      <textarea id="frames-import" style="width: 100%; background: #0f0f23; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; padding: 8px 10px; font-size: 0.85em; font-family: 'Consolas', 'Monaco', monospace; min-height: 80px; resize: vertical;" placeholder='Paste JSON here, e.g. {"AudioKey":"...","MusicData":{"AssetKey":"..."},...} or [...]'></textarea>
+      <textarea id="frames-import" style="width: 100%; background: #0f0f23; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; padding: 8px 10px; font-size: 0.85em; font-family: 'Consolas', 'Monaco', monospace; min-height: 80px; resize: vertical;" placeholder='Paste frames JSON or generated SQL output here'></textarea>
       <div style="display: flex; gap: 8px; margin-top: 8px;">
         <button class="btn-add" style="margin-bottom: 0;" onclick="importFrames(false)">Import (Replace All)</button>
         <button class="btn-add" style="margin-bottom: 0;" onclick="importFrames(true)">Import (Append)</button>
@@ -545,19 +545,49 @@
       }
     }
 
+    // Extract just the Frames JSON string from SQL output
+    function extractFramesFromSQL(sql) {
+      const updateMatch = sql.match(/UPDATE\s+GameData\.Cutscenes/i);
+      const insertMatch = sql.match(/INSERT\s+INTO\s+GameData\.Cutscenes/i);
+
+      if (updateMatch) {
+        const framesIdx = sql.indexOf("Frames = '", updateMatch.index);
+        if (framesIdx === -1) return null;
+        return extractSQLString(sql, framesIdx + "Frames = '".length).value;
+      } else if (insertMatch) {
+        const valIdx = sql.indexOf("VALUES('", insertMatch.index);
+        if (valIdx === -1) return null;
+        return extractSQLString(sql, valIdx + "VALUES('".length).value;
+      }
+      return null;
+    }
+
     function importFrames(append) {
       const errorEl = document.getElementById('import-error');
       errorEl.style.display = 'none';
       const raw = document.getElementById('frames-import').value.trim();
       if (!raw) {
-        errorEl.textContent = 'Paste some JSON first.';
+        errorEl.textContent = 'Paste some JSON or SQL first.';
         errorEl.style.display = 'block';
         return;
       }
 
+      let jsonStr = raw;
+      // Auto-detect SQL: extract Frames JSON from it
+      const isSQL = raw.startsWith('--') || /^\s*(UPDATE|INSERT)/i.test(raw);
+      if (isSQL) {
+        const extracted = extractFramesFromSQL(raw);
+        if (!extracted) {
+          errorEl.textContent = 'Could not find Frames in SQL output.';
+          errorEl.style.display = 'block';
+          return;
+        }
+        jsonStr = extracted;
+      }
+
       let parsed;
       try {
-        parsed = JSON.parse(raw);
+        parsed = JSON.parse(jsonStr);
       } catch (e) {
         errorEl.textContent = 'Invalid JSON: ' + e.message;
         errorEl.style.display = 'block';
