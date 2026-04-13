@@ -144,6 +144,28 @@
   <!-- Journey Node Section -->
   <div class="section">
     <h2>Journey Node</h2>
+    <div style="margin-bottom: 16px; padding: 12px; background: #0f1a30; border: 1px dashed #444; border-radius: 6px;">
+      <label style="display: block; font-size: 0.85em; color: #aaa; margin-bottom: 4px;">
+        Import Journey Node <span class="hint">(paste a CSV row from GameData.JourneyNodes, or previously generated SQL output)</span>
+      </label>
+      <textarea id="node-import" style="width: 100%; background: #0f0f23; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; padding: 8px 10px; font-size: 0.85em; font-family: 'Consolas', 'Monaco', monospace; min-height: 60px; resize: vertical;" placeholder='Paste a CSV row or generated SQL output here'></textarea>
+      <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <button class="btn-add" style="margin-bottom: 0;" onclick="importJourneyNodeRow()">Import Journey Node</button>
+      </div>
+      <div id="node-import-error" style="color: #df8f8f; font-size: 0.8em; margin-top: 6px; display: none;"></div>
+    </div>
+    <div class="row-2">
+      <div class="field">
+        <label for="node-id">NodeID <span class="hint">(leave blank for new)</span></label>
+        <input type="number" id="node-id" placeholder="Existing Node ID">
+      </div>
+      <div style="display: flex; align-items: flex-end; padding-bottom: 14px;">
+        <div class="checkbox-field" style="margin-bottom: 0;">
+          <input type="checkbox" id="node-overwrite">
+          <label for="node-overwrite">Overwrite Node</label>
+        </div>
+      </div>
+    </div>
     <div class="checkbox-field">
       <input type="checkbox" id="node-active" checked>
       <label for="node-active">Active</label>
@@ -545,6 +567,90 @@
       }
     }
 
+    function importJourneyNodeRow() {
+      const errorEl = document.getElementById('node-import-error');
+      errorEl.style.display = 'none';
+      const raw = document.getElementById('node-import').value.trim();
+      if (!raw) {
+        errorEl.textContent = 'Paste a CSV row or SQL output first.';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      const isSQL = raw.startsWith('--') || /^\s*(UPDATE|INSERT)/i.test(raw);
+
+      try {
+        let nodeId = '', active = true, location = '', order = '', scenario = '', rewardIds = '', cutsceneId = '';
+        let nodeData = {};
+
+        if (isSQL) {
+          // Reuse parseSQLOutput which already extracts JourneyNode fields
+          const parsed = parseSQLOutput(raw);
+          active = parsed.nodeActive;
+          location = parsed.nodeLocation;
+          order = parsed.nodeOrder;
+          scenario = parsed.nodeScenario;
+          rewardIds = parsed.nodeRewardIds;
+          nodeData = parsed.nodeData || {};
+          cutsceneId = parsed.cutsceneId || '';
+          // Try to extract NodeID from an UPDATE JourneyNodes statement if present
+          const nodeUpdateMatch = raw.match(/UPDATE\s+GameData\.JourneyNodes[\s\S]*?WHERE\s+ID\s*=\s*(\d+)/i);
+          if (nodeUpdateMatch) nodeId = nodeUpdateMatch[1];
+        } else {
+          // CSV format: ID, Active, Location, Order, Scenario, RewardIds, Data, CutsceneID
+          const fields = parseCSVRow(raw);
+          if (fields.length < 8) throw new Error(`Expected 8 columns (ID, Active, Location, Order, Scenario, RewardIds, Data, CutsceneID), got ${fields.length}`);
+          nodeId = (fields[0] || '').trim();
+          active = (fields[1] || '').trim() === '1';
+          location = (fields[2] || '').trim();
+          if (location.toUpperCase() === 'NULL') location = '';
+          order = (fields[3] || '').trim();
+          if (order.toUpperCase() === 'NULL') order = '';
+          scenario = (fields[4] || '').trim();
+          if (scenario.toUpperCase() === 'NULL') scenario = '';
+          rewardIds = (fields[5] || '').trim();
+          try {
+            nodeData = JSON.parse(fields[6] || '{}');
+          } catch (e) {
+            throw new Error('Invalid Data JSON: ' + e.message);
+          }
+          cutsceneId = (fields[7] || '').trim();
+          if (cutsceneId.toUpperCase() === 'NULL') cutsceneId = '';
+        }
+
+        // Populate Node ID and check overwrite
+        if (nodeId) {
+          document.getElementById('node-id').value = nodeId;
+          document.getElementById('node-overwrite').checked = true;
+        }
+
+        // Populate node fields
+        document.getElementById('node-active').checked = !!active;
+        if (location) document.getElementById('node-location').value = location;
+        if (order) document.getElementById('node-order').value = order;
+        if (scenario) document.getElementById('node-scenario').value = scenario;
+        if (rewardIds) document.getElementById('node-rewardids').value = rewardIds;
+
+        // Populate node data fields
+        document.getElementById('node-title').value = nodeData.Title || '';
+        document.getElementById('node-description').value = nodeData.Description || '';
+        document.getElementById('node-characterasset').value = nodeData.CharacterAssetKey || '';
+        document.getElementById('node-backgroundasset').value = nodeData.BackgroundAssetKey || '';
+        document.getElementById('node-hint').value = nodeData.Hint || '';
+
+        // Populate CutsceneID if provided
+        if (cutsceneId) {
+          document.getElementById('cutscene-id').value = cutsceneId;
+        }
+
+        // Clear the import box on success
+        document.getElementById('node-import').value = '';
+      } catch (e) {
+        errorEl.textContent = 'Import error: ' + e.message;
+        errorEl.style.display = 'block';
+      }
+    }
+
     // Extract a JSON array from a string starting at or after startIdx.
     // Tracks JSON string state to correctly handle brackets inside strings.
     function extractJSONArray(str, startIdx) {
@@ -793,12 +899,16 @@
 
       const cutsceneId = document.getElementById('cutscene-id').value;
       const overwrite = document.getElementById('cutscene-overwrite').checked;
+      const nodeId = document.getElementById('node-id').value;
+      const nodeOverwrite = document.getElementById('node-overwrite').checked;
 
       let sql = '';
       sql += '-- =============================================\n';
       sql += `-- Journey Node: ${nodeData.Title || '(untitled)'}\n`;
       sql += '-- =============================================\n\n';
 
+      // Cutscene section
+      let cutsceneRef;
       if (overwrite && cutsceneId) {
         sql += '-- Cutscene (overwrite)\n';
         sql += `UPDATE GameData.Cutscenes\n`;
@@ -806,19 +916,31 @@
         sql += `    Metadata = '${escapeSQL(metadataJsonStr)}',\n`;
         sql += `    Skippable = ${skippable}\n`;
         sql += `WHERE ID = ${cutsceneId};\n\n`;
-
-        sql += '-- Journey Node\n';
-        sql += `INSERT INTO GameData.JourneyNodes(Active, Location, \`Order\`, Scenario, RewardIds, Data, CutsceneID)\n`;
-        sql += `VALUES(${active}, ${location || 'NULL'}, ${order || 'NULL'}, ${scenario || 'NULL'}, '${escapeSQL(rewardIds || '[]')}', '${escapeSQL(nodeDataJson)}', ${cutsceneId});\n`;
+        cutsceneRef = cutsceneId;
       } else {
         sql += '-- Cutscene\n';
         sql += `INSERT INTO GameData.Cutscenes(Frames, Metadata, Skippable)\n`;
         sql += `VALUES('${escapeSQL(framesJsonStr)}', '${escapeSQL(metadataJsonStr)}', ${skippable});\n`;
         sql += 'SET @cutscene_id = LAST_INSERT_ID();\n\n';
+        cutsceneRef = '@cutscene_id';
+      }
 
+      // Journey Node section
+      if (nodeOverwrite && nodeId) {
+        sql += '-- Journey Node (overwrite)\n';
+        sql += `UPDATE GameData.JourneyNodes\n`;
+        sql += `SET Active = ${active},\n`;
+        sql += `    Location = ${location || 'NULL'},\n`;
+        sql += `    \`Order\` = ${order || 'NULL'},\n`;
+        sql += `    Scenario = ${scenario || 'NULL'},\n`;
+        sql += `    RewardIds = '${escapeSQL(rewardIds || '[]')}',\n`;
+        sql += `    Data = '${escapeSQL(nodeDataJson)}',\n`;
+        sql += `    CutsceneID = ${cutsceneRef}\n`;
+        sql += `WHERE ID = ${nodeId};\n`;
+      } else {
         sql += '-- Journey Node\n';
         sql += `INSERT INTO GameData.JourneyNodes(Active, Location, \`Order\`, Scenario, RewardIds, Data, CutsceneID)\n`;
-        sql += `VALUES(${active}, ${location || 'NULL'}, ${order || 'NULL'}, ${scenario || 'NULL'}, '${escapeSQL(rewardIds || '[]')}', '${escapeSQL(nodeDataJson)}', @cutscene_id);\n`;
+        sql += `VALUES(${active}, ${location || 'NULL'}, ${order || 'NULL'}, ${scenario || 'NULL'}, '${escapeSQL(rewardIds || '[]')}', '${escapeSQL(nodeDataJson)}', ${cutsceneRef});\n`;
       }
 
       document.getElementById('sql-output').textContent = sql;
